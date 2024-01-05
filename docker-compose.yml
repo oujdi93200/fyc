@@ -1,0 +1,102 @@
+version: '3.3'
+
+services:
+  traefik:
+    image: traefik:v2.5
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--metrics.prometheus=true"
+    ports:
+      - "80:80"
+      - "8888:8080" # Port modifié pour l'interface web de Traefik
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - webgateway
+
+  prometheus:
+    image: prom/prometheus
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - webgateway
+
+  grafana:
+    image: grafana/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - webgateway
+    depends_on:
+      - prometheus
+
+  db:
+    image: mysql:5.7
+    container_name: mysql
+    volumes:
+      - wp_db:/var/lib/mysql/
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: password
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: myuser
+      MYSQL_PASSWORD: password
+    networks:
+      - wp
+
+  wordpress:
+    image: wordpress:latest
+    container_name: wordpress
+    depends_on:
+      - db
+    volumes:
+      - wp_statics:/var/www/html/
+    ports:
+      - 8000:80
+    restart: always
+    environment:
+      WORDPRESS_DB_HOST: db:3306
+      WORDPRESS_DB_USER: myuser
+      WORDPRESS_DB_PASSWORD: password
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.wordpress.rule=Host(`fyc.localhost`)"
+      - "traefik.http.routers.wordpress.entrypoints=web"
+    networks:
+      - wp
+      - webgateway
+
+  phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    depends_on:
+      - db
+    restart: always
+    ports:
+      - 7777:80
+    environment:
+      PMA_HOST: db
+      MYSQL_ROOT_PASSWORD: password
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.phpmyadmin.rule=Host(`phpmyadmin.localhost`)"
+      - "traefik.http.routers.phpmyadmin.entrypoints=web"
+    networks:
+      - wp
+      - webgateway
+
+networks:
+  wp:
+  webgateway:
+    driver: bridge
+
+volumes:
+  wp_db:
+    driver: local
+  wp_statics:
+    driver: local
+
